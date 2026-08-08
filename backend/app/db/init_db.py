@@ -1,0 +1,22 @@
+"""Database initialization: create all tables (and a baseline Alembic stamp).
+
+For the scaffold we create tables directly via metadata; Alembic is configured for
+incremental migrations once real schema changes land.
+"""
+from __future__ import annotations
+
+from sqlalchemy import text
+
+from app.db.base import Base
+from app.db.session import get_engine
+
+
+async def init_db() -> None:
+    # Import models so they register on Base.metadata before create_all.
+    from app import models  # noqa: F401
+
+    engine = get_engine()
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+        # Ensure WAL is on for the freshly created DB.
+        await conn.execute(text("PRAGMA journal_mode=WAL;"))

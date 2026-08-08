@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Node
+node_modules/
+.next/
+out/
+dist/
+build/
+
+# Env & secrets
+.env
+.env.local
+*.pem
+
+# Project runtime data (git-ignored but tracked locally)
+backend/data/
+backend/*.db
+backend/*.db-wal
+backend/*.db-shm
+# ⚠️ 真实数据库/文档副本/向量库在 backend/app/data/（BACKEND_ROOT=backend/app），
+# 必须忽略，否则会把 rag.db 与用户文档副本泄露到仓库
+backend/app/data/
+backend/models/
+backend/*.log
+backend/sample.pdf
+backend/_tmp_test/
+backend/_sync_test/
+frontend/public/uploads/
+
+# Editors
+.idea/
+.vscode/
+*.swp
+.DS_Store

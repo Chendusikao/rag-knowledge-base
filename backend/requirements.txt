@@ -1,0 +1,33 @@
+# ---- Web / API ----
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+python-multipart==0.0.9
+pydantic==2.9.2
+pydantic-settings==2.5.2
+
+# ---- Data / ORM ----
+SQLAlchemy==2.0.35
+alembic==1.13.3
+aiosqlite==0.20.0
+
+# ---- Retrieval ----
+# BM25 is real (rank_bm25). Dense uses a real on-disk index.
+rank_bm25==0.2.2
+# Chroma is the PLAN-target dense backend (persistent ANN). It is OPTIONAL:
+# the store auto-falls back to a dependency-free, file-backed index when
+# chromadb is not installed, so the scaffold runs without the heavy dep.
+# Install with:  pip install chromadb   (then re-index to populate it)
+chromadb==1.5.9  # 已安装并验证：提供真实持久化 ANN 稠密索引；未装时自动回退零依赖文件索引
+
+# ---- Parsing / Models ----
+# Docling: real layout-aware PDF/Office/image parsing (replaces the scaffold
+# placeholder). It pulls onnxruntime layout/table models on first run; torch &
+# onnxruntime are already installed in this venv. Optional OCR (images /
+# scanned PDFs) needs easyocr:  pip install easyocr
+docling
+# sentence-transformers + torch already installed (BGE-M3 local embeddings).
+# sentence-transformers==3.1.0
+# torch==2.4.0
+
+# ---- Misc ----
+httpx==0.27.2

@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>知识库问答</title>
+<style>
+  :root {
+    --bg: #f4f6f9;
+    --surface: #ffffff;
+    --border: #e4e8ef;
+    --text: #1f2937;
+    --muted: #6b7280;
+    --accent: #2563eb;
+    --accent-weak: #eff4ff;
+    --danger: #dc2626;
+    --radius: 12px;
+    --shadow: 0 1px 3px rgba(16, 24, 40, .06), 0 1px 2px rgba(16, 24, 40, .04);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+                 "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ---------- 顶部栏 ---------- */
+  .topbar {
+    height: 56px;
+    flex: 0 0 56px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 20px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  .brand { font-size: 17px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .brand .logo { font-size: 20px; }
+  .model-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12.5px; color: var(--muted);
+    background: var(--bg); border: 1px solid var(--border);
+    padding: 4px 10px; border-radius: 999px;
+  }
+  .model-badge .dot { width: 8px; height: 8px; border-radius: 50%; background: #9ca3af; }
+  .model-badge.ok .dot { background: #16a34a; }
+  .model-badge.warn .dot { background: #d97706; }
+
+  /* ---------- 主体布局 ---------- */
+  .layout { flex: 1; display: flex; min-height: 0; }
+
+  /* 左栏 */
+  .sidebar {
+    width: 264px; flex: 0 0 264px;
+    background: var(--surface); border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; min-height: 0;
+  }
+  .sidebar-head {
+    padding: 16px 16px 8px; font-size: 12px; font-weight: 600;
+    color: var(--muted); text-transform: uppercase; letter-spacing: .04em;
+  }
+  .kb-list { flex: 1; overflow-y: auto; padding: 4px 10px 10px; }
+  .kb-empty {
+    padding: 28px 16px; text-align: center; color: var(--muted);
+    font-size: 13px; line-height: 1.8;
+  }
+  .kb-item {
+    padding: 10px 12px; border-radius: 10px; cursor: pointer;
+    margin-bottom: 4px; transition: background .15s;
+    border: 1px solid transparent;
+  }
+  .kb-item:hover { background: #f8fafc; }
+  .kb-item.active { background: var(--accent-weak); border-color: #c7d7fe; }
+  .kb-item .kb-name { font-size: 14px; font-weight: 500; }
+  .kb-item .kb-desc {
+    font-size: 12px; color: var(--muted); margin-top: 2px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .sidebar-foot { padding: 12px 14px; border-top: 1px solid var(--border); }
+  .btn-new {
+    width: 100%; padding: 9px 0; border: 1px solid var(--border);
+    background: var(--surface); color: var(--text);
+    border-radius: 10px; font-size: 13.5px; cursor: pointer; transition: background .15s;
+  }
+  .btn-new:hover { background: #f8fafc; }
+
+  /* 聊天主区 */
+  .chat-main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .chat-mobile-bar { display: none; padding: 10px 12px; background: var(--surface); border-bottom: 1px solid var(--border); }
+  .chat-mobile-bar select {
+    width: 100%; padding: 8px 10px; border: 1px solid var(--border);
+    border-radius: 10px; font-size: 14px; background: var(--surface); color: var(--text);
+  }
+
+  .messages { flex: 1; overflow-y: auto; padding: 24px 8px 16px; }
+  .msg-wrap { display: flex; margin-bottom: 18px; }
+  .msg-wrap.user { justify-content: flex-end; }
+  .msg {
+    max-width: min(78%, 720px);
+    padding: 11px 15px; border-radius: 14px;
+    font-size: 14.5px; line-height: 1.65; white-space: pre-wrap; word-break: break-word;
+  }
+  .msg-wrap.user .msg {
+    background: var(--accent); color: #fff;
+    border-bottom-right-radius: 4px;
+  }
+  .msg-wrap.assistant .msg {
+    background: var(--surface); border: 1px solid var(--border);
+    box-shadow: var(--shadow); border-bottom-left-radius: 4px;
+  }
+  .msg-wrap.system { justify-content: center; }
+  .msg-wrap.system .msg {
+    background: transparent; color: var(--muted); font-size: 13px;
+    padding: 6px 10px; border: none; box-shadow: none;
+  }
+  .typing { color: var(--muted); }
+  .typing::after {
+    content: ""; display: inline-block; width: 5px; height: 14px;
+    background: var(--muted); margin-left: 3px; vertical-align: -2px;
+    animation: blink 1s steps(2, start) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* 引用卡片 */
+  .citations { margin-top: 12px; border-top: 1px dashed var(--border); padding-top: 10px; }
+  .citations-title { font-size: 12px; color: var(--muted); margin-bottom: 8px; font-weight: 600; }
+  .cite-card {
+    background: #fafbfd; border: 1px solid var(--border); border-radius: 10px;
+    padding: 9px 12px; margin-bottom: 8px; font-size: 13px;
+  }
+  .cite-card .cite-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+  .cite-doc { font-weight: 600; font-size: 13px; }
+  .cite-doc-link {
+    color: var(--accent); text-decoration: none;
+    font-weight: 600; font-size: 13px;
+  }
+  .cite-doc-link:hover { text-decoration: underline; }
+  .cite-open { font-size: 11px; opacity: .7; margin-left: 1px; }
+  .cite-tag {
+    font-size: 11.5px; color: var(--accent); background: var(--accent-weak);
+    padding: 1px 8px; border-radius: 999px;
+  }
+  .cite-sec { font-size: 12px; color: var(--muted); }
+  .cite-snippet {
+    color: var(--muted); font-size: 12.5px; line-height: 1.55;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .hint-insufficient { margin-top: 8px; font-size: 12.5px; color: #b45309; }
+
+  /* 错误提示条 */
+  .err-banner {
+    margin: 0 12px 8px; padding: 10px 14px; border-radius: 10px;
+    background: #fef2f2; border: 1px solid #fecaca; color: var(--danger);
+    font-size: 13px; line-height: 1.6; white-space: pre-wrap;
+  }
+
+  /* 输入区 */
+  .inputbar {
+    flex: 0 0 auto; padding: 12px 16px 16px;
+    background: var(--bg);
+  }
+  .input-shell {
+    display: flex; align-items: flex-end; gap: 10px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 14px; padding: 10px 12px;
+    box-shadow: var(--shadow);
+    transition: border-color .15s;
+  }
+  .input-shell:focus-within { border-color: var(--accent); }
+  .input-shell textarea {
+    flex: 1; border: none; outline: none; resize: none;
+    font-family: inherit; font-size: 14.5px; line-height: 1.6;
+    max-height: 120px; min-height: 24px; color: var(--text);
+    background: transparent;
+  }
+  .btn-send {
+    flex: 0 0 auto; padding: 8px 20px; border: none; border-radius: 10px;
+    background: var(--accent); color: #fff; font-size: 14px; font-weight: 500;
+    cursor: pointer; transition: opacity .15s;
+  }
+  .btn-send:disabled { opacity: .45; cursor: not-allowed; }
+
+  /* ---------- 响应式 ---------- */
+  @media (max-width: 767px) {
+    .sidebar { display: none; }
+    .chat-mobile-bar { display: block; }
+    .msg { max-width: 90%; }
+    .inputbar { padding: 10px 12px 12px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand"><span class="logo">📚</span>知识库问答</div>
+  <div class="model-badge" id="modelBadge"><span class="dot"></span><span id="modelBadgeText">加载中…</span></div>
+</header>
+
+<div class="layout">
+  <!-- 左栏：知识库列表（桌面） -->
+  <aside class="sidebar">
+    <div class="sidebar-head">知识库</div>
+    <div class="kb-list" id="kbList"></div>
+    <div class="sidebar-foot">
+      <button class="btn-new" id="newSessionBtn">＋ 新建会话</button>
+    </div>
+  </aside>
+
+  <!-- 聊天主区 -->
+  <main class="chat-main">
+    <div class="chat-mobile-bar">
+      <select id="kbSelectMobile"><option value="">请选择知识库…</option></select>
+    </div>
+    <div class="messages" id="messages"></div>
+    <div id="errBanner"></div>
+    <div class="inputbar">
+      <div class="input-shell">
+        <textarea id="input" rows="1" placeholder="输入你的问题…（Enter 发送，Shift+Enter 换行）"></textarea>
+        <button class="btn-send" id="sendBtn">发送</button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+"use strict";
+
+const API = "/api/v1";
+const $ = (id) => document.getElementById(id);
+
+let kbs = [];
+let currentKbId = null;
+let sessionId = null;
+let streaming = false;
+let pendingCitations = null;
+
+const messagesEl = $("messages");
+const inputEl = $("input");
+const sendBtn = $("sendBtn");
+const errBannerEl = $("errBanner");
+
+/* ---------------- 工具 ---------------- */
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[c]));
+}
+
+async function fetchJson(path, options) {
+  const resp = await fetch(API + path, options);
+  if (!resp.ok) {
+    let detail = "";
+    try { detail = await resp.text(); } catch (e) { /* ignore */ }
+    throw new Error("HTTP " + resp.status + (detail ? "：" + detail.slice(0, 200) : ""));
+  }
+  return resp.json();
+}
+
+function scrollBottom() {
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+function showErr(text) {
+  errBannerEl.innerHTML = '<div class="err-banner">⚠️ ' + escapeHtml(text) + "</div>";
+}
+function clearErr() { errBannerEl.innerHTML = ""; }
+
+/* ---------------- 顶部模型状态 ---------------- */
+async function loadMeta() {
+  const badge = $("modelBadge"), txt = $("modelBadgeText");
+  try {
+    const m = await fetchJson("/meta");
+    const provider = m.llm_provider || "mock";
+    if (provider === "deepseek" && m.deepseek_configured) {
+      badge.className = "model-badge ok";
+      txt.textContent = "DeepSeek 已启用";
+    } else if (provider === "deepseek") {
+      badge.className = "model-badge warn";
+      txt.textContent = "DeepSeek 未填 key（示例回答）";
+    } else {
+      badge.className = "model-badge warn";
+      txt.textContent = "示例回答（未配置模型）";
+    }
+  } catch (e) {
+    badge.className = "model-badge warn";
+    txt.textContent = "模型状态未知";
+  }
+}
+
+/* ---------------- 知识库列表 ---------------- */
+function flattenKbs(data) {
+  if (Array.isArray(data)) return data;
+  if (data && typeof data === "object") {
+    for (const k of ["items", "data", "knowledge_bases", "results"]) {
+      if (Array.isArray(data[k])) return data[k];
+    }
+    return [data];
+  }
+  return [];
+}
+
+async function loadKbs() {
+  try {
+    const data = await fetchJson("/knowledge-bases");
+    kbs = flattenKbs(data);
+  } catch (e) {
+    kbs = [];
+    showErr("连不上后端（http://127.0.0.1:8000）。\n请先在本机运行 start_backend.ps1 启动后端，再刷新本页。\n（" + escapeHtml(e.message) + "）");
+  }
+  renderKbList();
+}
+
+function renderKbList() {
+  const ul = $("kbList");
+  const sel = $("kbSelectMobile");
+  ul.innerHTML = "";
+  sel.innerHTML = '<option value="">请选择知识库…</option>';
+  if (!kbs.length) {
+    ul.innerHTML = '<div class="kb-empty">暂无知识库<br>还没有可用的知识库，请先创建并上传文档</div>';
+  }
+  for (const kb of kbs) {
+    const li = document.createElement("div");
+    li.className = "kb-item" + (kb.id === currentKbId ? " active" : "");
+    li.dataset.id = kb.id;
+    li.innerHTML = '<div class="kb-name">' + escapeHtml(kb.name || kb.id) + "</div>" +
+      (kb.description ? '<div class="kb-desc">' + escapeHtml(kb.description) + "</div>" : "");
+    li.addEventListener("click", () => selectKb(kb.id));
+    ul.appendChild(li);
+
+    const opt = document.createElement("option");
+    opt.value = kb.id;
+    opt.textContent = kb.name || kb.id;
+    sel.appendChild(opt);
+  }
+  sel.value = currentKbId || "";
+}
+
+function selectKb(id) {
+  if (!kbs.some((k) => k.id === id)) return;
+  currentKbId = id;
+  sessionId = null;
+  pendingCitations = null;
+  renderKbList();
+  const kb = kbs.find((k) => k.id === id);
+  addSystemMsg("已切换到知识库「" + (kb.name || id) + "」，开始新会话。");
+  inputEl.focus();
+}
+
+/* ---------------- 消息渲染 ---------------- */
+function addMsg(role, html) {
+  const wrap = document.createElement("div");
+  wrap.className = "msg-wrap " + role;
+  const bubble = document.createElement("div");
+  bubble.className = "msg";
+  bubble.innerHTML = html;
+  wrap.appendChild(bubble);
+  messagesEl.appendChild(wrap);
+  scrollBottom();
+  return bubble;
+}
+
+function addUserMsg(text) {
+  return addMsg("user", escapeHtml(text));
+}
+
+function addAssistantMsg() {
+  const bubble = addMsg("assistant", '<span class="typing">正在思考…</span>');
+  return bubble;
+}
+
+function addSystemMsg(text) {
+  addMsg("system", escapeHtml(text));
+}
+
+function showThinking(bubble, text) {
+  bubble.innerHTML = '<span class="typing">' + escapeHtml(text) + "</span>";
+  scrollBottom();
+}
+
+function removeThinking(bubble) {
+  if (bubble.querySelector(".typing")) bubble.innerHTML = "";
+}
+
+/* 引用卡片 */
+function renderCitations(bubble, citations) {
+  if (!citations || !citations.length) return;
+  const box = document.createElement("div");
+  box.className = "citations";
+  let html = '<div class="citations-title">📎 参考来源</div>';
+  for (const c of citations) {
+    const doc = c.doc_name || c.doc_id || "未知文档";
+    const page = c.page_number ? "第 " + c.page_number + " 页" : "";
+    const tags = [];
+    if (page) tags.push(page);
+    if (c.citation_type && c.citation_type !== "page") tags.push(c.citation_type);
+    const sec = Array.isArray(c.section_path) && c.section_path.length
+      ? c.section_path.join(" / ") : "";
+    const docHtml = c.doc_id
+      ? '<a class="cite-doc-link" href="/api/v1/documents/' + encodeURIComponent(c.doc_id) +
+        '/file" target="_blank" rel="noopener" title="点击打开源文件">' + escapeHtml(doc) +
+        '<span class="cite-open">↗</span></a>'
+      : '<span class="cite-doc">' + escapeHtml(doc) + "</span>";
+    html += '<div class="cite-card">' +
+      '<div class="cite-head">' + docHtml +
+      tags.map((t) => '<span class="cite-tag">' + escapeHtml(t) + "</span>").join("") + "</div>" +
+      (sec ? '<div class="cite-sec">📖 ' + escapeHtml(sec) + "</div>" : "") +
+      (c.snippet ? '<div class="cite-snippet">' + escapeHtml(c.snippet) + "</div>" : "") +
+      "</div>";
+  }
+  box.innerHTML = html;
+  bubble.appendChild(box);
+  scrollBottom();
+}
+
+/* ---------------- 发送 / 流式 ---------------- */
+async function send() {
+  const query = inputEl.value.trim();
+  if (streaming) return;
+  if (!query) { inputEl.focus(); return; }
+  if (!currentKbId) { addSystemMsg("请先选择一个知识库。"); return; }
+  clearErr();
+  inputEl.value = "";
+  autoGrow();
+  addUserMsg(query);
+
+  const bubble = addAssistantMsg();
+  streaming = true;
+  sendBtn.disabled = true;
+  pendingCitations = null;
+
+  const payload = {
+    kb_id: currentKbId,
+    query: query,
+    mode: "balanced",
+    backend: "local",
+    session_id: sessionId,
+  };
+
+  let resp = null;
+  try {
+    resp = await fetch(API + "/chat/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch (e) {
+    removeThinking(bubble);
+    bubble.textContent = "（未能连接到后端）";
+    showErr("连不上后端（http://127.0.0.1:8000）。\n请先在本机运行 start_backend.ps1 启动后端，再重试。");
+    finish();
+    return;
+  }
+
+  if (!resp.ok) {
+    let detail = "";
+    try { detail = await resp.text(); } catch (e) { /* ignore */ }
+    removeThinking(bubble);
+    bubble.textContent = "（请求失败）";
+    showErr("接口返回 " + resp.status + "：" + detail.slice(0, 300));
+    finish();
+    return;
+  }
+
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let buf = "";
+  let gotAnyEvent = false;
+  let gotToken = false;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buf.indexOf("\n\n")) >= 0) {
+        const chunk = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        const line = chunk.split("\n").find((l) => l.startsWith("data:"));
+        if (!line) continue;
+        gotAnyEvent = true;
+        let ev;
+        try { ev = JSON.parse(line.slice(5).trim()); } catch (e) { continue; }
+        handleEvent(ev, bubble);
+        if (ev.phase === "generate" && ev.token) gotToken = true;
+        if (ev.session_id) sessionId = ev.session_id;
+      }
+    }
+  } catch (e) {
+    removeThinking(bubble);
+    if (!bubble.textContent.trim()) {
+      bubble.textContent = "（响应中断，未收到内容）";
+    }
+    showErr("读取流式响应中断：" + escapeHtml(e.message));
+    // 防御：即使没收到 done，已收到的引用也要渲染出来
+    if (pendingCitations && pendingCitations.length) {
+      const trunc = document.createElement("div");
+      trunc.className = "hint-insufficient";
+      trunc.textContent = "⚠️ 回答被截断，以下是已收到的部分来源：";
+      bubble.appendChild(trunc);
+      renderCitations(bubble, pendingCitations);
+      scrollBottom();
+    }
+  }
+
+  if (!gotAnyEvent) {
+    removeThinking(bubble);
+    bubble.textContent = "（后端没有返回任何内容）";
+    showErr("后端没有返回任何内容，通常是检索或模型调用出错了。\n请检查 backend.log，或重跑 start_backend.ps1 后重试。");
+  } else if (!gotToken) {
+    removeThinking(bubble);
+    if (!bubble.textContent.trim()) {
+      bubble.textContent = "（检索完成但没有生成回答，可能知识库资料不足或模型调用失败）";
+    }
+  }
+  finish();
+}
+
+function finish() {
+  streaming = false;
+  sendBtn.disabled = false;
+  inputEl.focus();
+}
+
+function handleEvent(ev, bubble) {
+  switch (ev.phase) {
+    case "retrieve":
+      showThinking(bubble, "正在检索知识库…");
+      break;
+    case "rerank":
+      showThinking(bubble, "正在重排结果…");
+      break;
+    case "generate":
+      removeThinking(bubble);
+      if (ev.token) {
+        bubble.textContent += ev.token;
+        scrollBottom();
+      }
+      break;
+    case "citation":
+      if (Array.isArray(ev.citations)) pendingCitations = ev.citations;
+      break;
+    case "done":
+      removeThinking(bubble);
+      if (pendingCitations) renderCitations(bubble, pendingCitations);
+      if (ev.insufficient_evidence) {
+        const hint = document.createElement("div");
+        hint.className = "hint-insufficient";
+        hint.textContent = "⚠️ 知识库中可能没有足够资料，以上回答仅供参考。";
+        bubble.appendChild(hint);
+        scrollBottom();
+      }
+      break;
+    case "error":
+      removeThinking(bubble);
+      if (!bubble.textContent.trim()) bubble.textContent = "（出错了）";
+      showErr("模型调用出错：" + (ev.error || "未知错误"));
+      break;
+  }
+}
+
+/* ---------------- 输入框 ---------------- */
+function autoGrow() {
+  inputEl.style.height = "auto";
+  inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + "px";
+}
+
+inputEl.addEventListener("input", autoGrow);
+inputEl.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    send();
+  }
+});
+sendBtn.addEventListener("click", send);
+$("newSessionBtn").addEventListener("click", () => {
+  if (!currentKbId) { addSystemMsg("请先选择一个知识库。"); return; }
+  sessionId = null;
+  pendingCitations = null;
+  addSystemMsg("已开启新会话（当前知识库保持不变）。");
+});
+$("kbSelectMobile").addEventListener("change", (e) => {
+  if (e.target.value) selectKb(e.target.value);
+});
+
+/* ---------------- 初始化 ---------------- */
+loadMeta();
+loadKbs();
+inputEl.focus();
+</script>
+</body>
+</html>
