@@ -4,6 +4,14 @@ from app.models.chat import ChatSession, Citation, Message, RetrievalTrace
 from app.models.chunk import Chunk
 from app.models.document import Document, DocumentVersion
 from app.models.evaluation import EvaluationCase, EvaluationRun, MetricResult
+from app.models.enterprise import (
+    AuditEvent,
+    AuthSession,
+    Department,
+    EnterpriseUser,
+    KnowledgeBasePermission,
+    KnowledgeBaseScope,
+)
 from app.models.job import JobRun
 from app.models.knowledge_base import IndexGeneration, KnowledgeBase
 from app.models.provider import ProviderProfile
@@ -24,4 +32,10 @@ __all__ = [
     "JobRun",
     "ProviderProfile",
     "CacheEntry",
+    "Department",
+    "EnterpriseUser",
+    "AuthSession",
+    "KnowledgeBaseScope",
+    "KnowledgeBasePermission",
+    "AuditEvent",
 ]

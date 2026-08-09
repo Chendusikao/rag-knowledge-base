@@ -10,7 +10,7 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Project root = backend/ directory
+# Application root = backend/app/ directory (kept for compatibility with existing data).
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = BACKEND_ROOT / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -33,10 +33,24 @@ class Settings(BaseSettings):
     # Knowledge-base专属原文件目录
     kb_storage_dir: str = str(DATA_DIR / "kb_files")
 
+    # Read-only enterprise source library. Files are copied into kb_storage_dir
+    # before parsing so deleting an application KB never deletes source material.
+    knowledge_source_root: str = str(DATA_DIR / "source_library")
+    knowledge_source_scan_limit: int = 10_000
+    knowledge_source_import_limit: int = 500
+
     # ---- Server ----
     host: str = "127.0.0.1"
     port: int = 8000
-    cors_allow_origins: list[str] = ["http://localhost:3000"]
+    cors_allow_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
+
+    # ---- Enterprise authentication / security ----
+    auth_cookie_name: str = "rag_enterprise_session"
+    auth_session_hours: int = 8
+    auth_cookie_secure: bool = False  # Set true when the frontend is served over HTTPS.
+    bootstrap_local_only: bool = True
+    password_pbkdf2_iterations: int = 600_000
+    storage_encryption_configured: bool = False
 
     # ---- Indexing limits (PLAN 3.Offline) ----
     max_file_bytes: int = 100 * 1024 * 1024  # 100 MB
@@ -101,6 +115,10 @@ class Settings(BaseSettings):
         p = Path(self.kb_storage_dir)
         p.mkdir(parents=True, exist_ok=True)
         return p
+
+    @property
+    def knowledge_source_path(self) -> Path:
+        return Path(self.knowledge_source_root).expanduser()
 
 
 @lru_cache

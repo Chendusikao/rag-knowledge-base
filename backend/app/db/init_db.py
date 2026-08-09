@@ -20,3 +20,18 @@ async def init_db() -> None:
         await conn.run_sync(Base.metadata.create_all)
         # Ensure WAL is on for the freshly created DB.
         await conn.execute(text("PRAGMA journal_mode=WAL;"))
+        # Audit rows are append-only even when a caller bypasses the API layer.
+        await conn.execute(text("""
+            CREATE TRIGGER IF NOT EXISTS audit_events_no_update
+            BEFORE UPDATE ON audit_events
+            BEGIN
+                SELECT RAISE(ABORT, 'audit events are immutable');
+            END;
+        """))
+        await conn.execute(text("""
+            CREATE TRIGGER IF NOT EXISTS audit_events_no_delete
+            BEFORE DELETE ON audit_events
+            BEGIN
+                SELECT RAISE(ABORT, 'audit events are immutable');
+            END;
+        """))

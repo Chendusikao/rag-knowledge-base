@@ -48,6 +48,7 @@ async def enqueue_job(
     doc_id: str | None = None,
     payload: dict | None = None,
     max_retries: int | None = None,
+    commit: bool = True,
 ) -> JobRun:
     """Create a QUEUED JobRun. Returns the persisted row."""
     job = JobRun(
@@ -61,8 +62,11 @@ async def enqueue_job(
         max_retries=max_retries if max_retries is not None else settings.max_job_retries,
     )
     session.add(job)
-    await session.commit()
-    await session.refresh(job)
+    if commit:
+        await session.commit()
+        await session.refresh(job)
+    else:
+        await session.flush()
     return job
 
 

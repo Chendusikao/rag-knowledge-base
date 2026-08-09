@@ -35,3 +35,23 @@ def session_id() -> str:
 
 def eval_id() -> str:
     return new_id("eval")
+
+
+def department_id() -> str:
+    return new_id("dept")
+
+
+def user_id() -> str:
+    return new_id("usr")
+
+
+def auth_session_id() -> str:
+    return new_id("auth")
+
+
+def permission_id() -> str:
+    return new_id("perm")
+
+
+def audit_id() -> str:
+    return new_id("audit")

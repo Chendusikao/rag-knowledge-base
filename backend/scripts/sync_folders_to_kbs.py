@@ -3,19 +3,20 @@
 批量同步：把「总数据库根目录」下的每个子文件夹，同步为一个知识库。
 
 用法（在 backend 目录下）：
-  E:/xaizai/wendaxitog/backend/.venv/Scripts/python.exe \
-      E:/xaizai/wendaxitog/backend/scripts/sync_folders_to_kbs.py [--root E:/xaizai/数据库]
+  .venv/Scripts/python.exe scripts/sync_folders_to_kbs.py \
+      [--root E:/path/to/enterprise-library]
 
 规则：
   1. root 的每个「直接子文件夹」= 一个知识库，KB 名 = 文件夹名。
-     （例：E:/xaizai/数据库/简历/ -> 知识库「简历」）
+     （例：<总资料库>/简历/ -> 知识库「简历」）
   2. 只处理系统支持的扩展名（PDF/Word/PPT/Excel/图片/HTML/md/txt），其余自动忽略。
   3. 增量同步：按「内容哈希」去重——同一 KB 里已存在相同内容的文档自动跳过；
      文件改过内容会重新导入；文件改名不影响去重。
   4. 空文件夹跳过（不建库），放文件后再跑一次即自动建库导入。
   5. 不依赖后端在线：直接驱动 service 层 + 内置 worker 完成解析入库。
 
-安全：脚本只做「复制入库」，不会删除你文件夹里的任何文件。
+安全：脚本只做「复制入库」，不会删除你文件夹里的任何文件；默认使用受限访问。
+      企业环境优先使用网页“总资料库”入口，以记录真实操作人。
 """
 from __future__ import annotations
 
@@ -34,8 +35,6 @@ if getattr(sys.flags, "utf8_mode", 0) == 0 or not os.environ.get("TORCH_COMPILE_
 
 import argparse
 import asyncio
-import mimetypes
-import shutil
 
 # Make the backend package importable when run as a standalone script.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -43,24 +42,24 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from sqlalchemy import select
 
 from app.core.config import settings
+from app.db.init_db import init_db
 from app.db.session import AsyncSessionLocal
-from app.models.common import DocStatus, JobType
+from app.models.common import DocStatus, JobType, KnowledgeAccessScope
 from app.models.document import Document
+from app.models.enterprise import DEFAULT_DEPARTMENT_ID, Department
 from app.models.knowledge_base import KnowledgeBase
 from app.services.parsing_docling import docling_available
-from app.services.storage import _ALLOWED_EXT
+from app.services.audit import record_audit
+from app.services.enterprise import get_or_create_scope, prepare_enterprise_state
+from app.services.storage import _ALLOWED_EXT, copy_source_file
 from app.services.task_system import enqueue_job, run_worker_once
 from app.services.worker_handlers import HANDLERS
 from app.utils.hash import sha256_file
-from app.utils.id import doc_id, kb_id
+from app.utils.id import kb_id
 
-DEFAULT_ROOT = "E:/xaizai/数据库"
+DEFAULT_ROOT = settings.knowledge_source_root
 # 这些文件夹名不会被当作知识库（用于暂存/临时文件）
 SKIP_FOLDERS = {"_导入", "_tmp", "_临时", ".git", ".idea", "__pycache__"}
-
-
-def _guess_mime(path: Path) -> str:
-    return mimetypes.guess_type(path.name)[0] or "application/octet-stream"
 
 
 async def _get_or_create_kb(session, name: str) -> tuple[KnowledgeBase, bool]:
@@ -91,37 +90,45 @@ async def _existing_hashes(session, kb_id: str) -> set[str]:
     return {h for h in rows.scalars().all() if h}
 
 
-async def _import_one(session, kb: KnowledgeBase, src: Path, existing: set[str]) -> str:
+async def _import_one(
+    session,
+    kb: KnowledgeBase,
+    src: Path,
+    existing: set[str],
+    department_id: str,
+) -> str:
     """导入单个文件到 KB。返回 'imported' / 'skipped'。"""
     content_hash = sha256_file(str(src))
     if content_hash in existing:
         return "skipped"
 
-    did = doc_id()
-    ext = src.suffix.lower()
-    kb_root = settings.kb_storage_path / kb.id
-    kb_root.mkdir(parents=True, exist_ok=True)
-    doc_dir = kb_root / did
-    doc_dir.mkdir(parents=True, exist_ok=True)
-    dest = doc_dir / f"original{ext}"
-    shutil.copy2(src, dest)
+    meta = copy_source_file(kb.id, src, src.name)
 
     doc = Document(
-        id=did,
+        id=meta["doc_id"],
         kb_id=kb.id,
-        filename=src.name,
-        mime_type=_guess_mime(src),
-        ext=ext,
+        filename=meta["filename"],
+        mime_type=meta["mime_type"],
+        ext=meta["ext"],
         content_hash=content_hash,
-        size_bytes=src.stat().st_size,
+        size_bytes=meta["size_bytes"],
         status=DocStatus.PENDING,
-        storage_path=str(dest),
+        storage_path=meta["storage_path"],
     )
     session.add(doc)
     await enqueue_job(
         session, JobType.REINDEX, kb.id,
-        doc_id=did,
-        payload={"storage_path": str(dest), "ext": ext},
+        doc_id=doc.id,
+        payload={"storage_path": meta["storage_path"], "ext": meta["ext"]},
+        commit=False,
+    )
+    await record_audit(
+        session,
+        action="document.source_imported",
+        resource_type="document",
+        resource_id=doc.id,
+        department_id=department_id,
+        details={"source_branch": src.parent.name, "extension": doc.ext, "size_bytes": doc.size_bytes},
     )
     existing.add(content_hash)
     return "imported"
@@ -132,7 +139,27 @@ async def main() -> int:
         description="把总数据库根目录下的每个子文件夹同步为一个知识库"
     )
     ap.add_argument("--root", default=DEFAULT_ROOT, help=f"总数据库根目录（默认 {DEFAULT_ROOT}）")
+    ap.add_argument(
+        "--department-id",
+        default=DEFAULT_DEPARTMENT_ID,
+        help="导入后所属部门 ID（默认企业公共部门）",
+    )
+    ap.add_argument(
+        "--access-scope",
+        choices=[KnowledgeAccessScope.RESTRICTED, KnowledgeAccessScope.DEPARTMENT],
+        default=KnowledgeAccessScope.RESTRICTED,
+        help="默认受限；选择 department 还需要 --confirm-department-access",
+    )
+    ap.add_argument(
+        "--confirm-department-access",
+        action="store_true",
+        help="明确确认所选部门全部成员默认可查看",
+    )
     args = ap.parse_args()
+
+    if args.access_scope == KnowledgeAccessScope.DEPARTMENT and not args.confirm_department_access:
+        print("[ERR] 部门共享需要同时传入 --confirm-department-access")
+        return 2
 
     root = Path(args.root).expanduser().resolve()
     if not root.is_dir():
@@ -150,7 +177,13 @@ async def main() -> int:
     summary: list[tuple[str, str, bool, int, int, int]] = []
     any_new = False
 
+    await init_db()
     async with AsyncSessionLocal() as session:
+        await prepare_enterprise_state(session)
+        department = await session.get(Department, args.department_id)
+        if department is None or not department.is_active:
+            print(f"[ERR] 部门不存在或已停用: {args.department_id}")
+            return 2
         for folder in folders:
             files = sorted(
                 p for p in folder.iterdir()
@@ -161,13 +194,26 @@ async def main() -> int:
                 continue
 
             kb, created = await _get_or_create_kb(session, folder.name)
+            scope = await get_or_create_scope(
+                session,
+                kb.id,
+                department_id=department.id,
+                access_scope=args.access_scope,
+            )
+            scope.department_id = department.id
+            scope.access_scope = args.access_scope
+            kb.settings = {
+                **(kb.settings or {}),
+                "source_library_branch": folder.name,
+                "source_copy_mode": "managed_copy",
+            }
             existing = await _existing_hashes(session, kb.id)
             print(f"\n[知识库] {folder.name}  (id={kb.id}, {'新建' if created else '已存在'})")
 
             n_imp = n_skip = n_fail = 0
             for f in files:
                 try:
-                    r = await _import_one(session, kb, f, existing)
+                    r = await _import_one(session, kb, f, existing, department.id)
                     if r == "imported":
                         n_imp += 1
                         any_new = True
@@ -179,6 +225,22 @@ async def main() -> int:
                     n_fail += 1
                     print(f"  [失败] {f.name}: {type(e).__name__}: {e}")
             summary.append((folder.name, kb.id, created, n_imp, n_skip, n_fail))
+            await record_audit(
+                session,
+                action="source_branch.imported",
+                resource_type="knowledge_base",
+                resource_id=kb.id,
+                department_id=department.id,
+                details={
+                    "source_branch": folder.name,
+                    "access_scope": args.access_scope,
+                    "created_knowledge_base": created,
+                    "imported_count": n_imp,
+                    "skipped_duplicate_count": n_skip,
+                    "failed_count": n_fail,
+                    "actor_source": "local_cli",
+                },
+            )
 
         await session.commit()
 
@@ -195,7 +257,7 @@ async def main() -> int:
     for name, kid, created, imp, skp, fail in summary:
         flag = "新建" if created else "已有"
         print(f"  「{name}」 {flag}  导入={imp}  跳过={skp}  失败={fail}   (kb={kid})")
-    print("\n完成。可在网页 http://127.0.0.1:8000/ 里选择对应知识库开始问答。")
+    print("\n完成。可在网页 http://localhost:3000/chat 里选择对应知识库开始问答。")
     return 0
 
 

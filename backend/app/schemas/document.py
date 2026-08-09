@@ -19,7 +19,6 @@ class DocumentOut(BaseModel):
     num_pages: int
     status: str
     current_version: int
-    storage_path: str
     created_at: datetime
     updated_at: datetime
 

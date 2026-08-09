@@ -13,6 +13,8 @@ class KnowledgeBaseCreate(BaseModel):
     reranker_model: str = "Qwen3-Reranker-0.6B"
     vision_enabled: bool = False
     settings: dict = Field(default_factory=dict)
+    department_id: str | None = None
+    access_scope: str = Field(default="department", pattern=r"^(department|restricted)$")
 
 
 class KnowledgeBaseUpdate(BaseModel):
@@ -22,6 +24,8 @@ class KnowledgeBaseUpdate(BaseModel):
     reranker_model: str | None = None
     vision_enabled: bool | None = None
     settings: dict | None = None
+    department_id: str | None = None
+    access_scope: str | None = Field(default=None, pattern=r"^(department|restricted)$")
 
 
 class KnowledgeBaseOut(BaseModel):
@@ -38,3 +42,7 @@ class KnowledgeBaseOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     document_count: int = 0  # populated by router
+    department_id: str = ""
+    department_name: str = ""
+    access_scope: str = "department"
+    access_level: str = "viewer"

@@ -103,3 +103,21 @@ class ProviderKind:
     MOCK = "mock"
     OPENAI_COMPATIBLE = "openai_compatible"
     DIFY = "dify"
+
+
+class SystemRole:
+    ADMIN = "admin"
+    DEPARTMENT_MANAGER = "department_manager"
+    MEMBER = "member"
+    AUDITOR = "auditor"
+
+
+class KnowledgeAccessLevel:
+    VIEWER = "viewer"
+    EDITOR = "editor"
+    MANAGER = "manager"
+
+
+class KnowledgeAccessScope:
+    DEPARTMENT = "department"
+    RESTRICTED = "restricted"
