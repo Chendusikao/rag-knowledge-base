@@ -79,6 +79,25 @@ wendaxitog/
 
 ## 快速开始
 
+## 一键部署（Windows）
+
+仓库根目录提供 Windows Release Pack，适合本地单机或受控内网体验。首次使用建议：
+
+```powershell
+.\install.ps1   # 创建 Python 虚拟环境并安装前后端依赖
+.\setup.ps1     # 安全输入 DeepSeek Key，配置企业资料目录
+.\start.ps1     # 启动后端和前端，并打开浏览器
+```
+
+常用维护命令：
+
+```powershell
+.\doctor.ps1    # 检查依赖、配置、端口和服务状态
+.\stop.ps1      # 停止本 Release Pack 启动的服务
+```
+
+`setup.ps1` 中直接回车不填写 Key 时会使用 Mock Provider，只适合检索、引用、权限和审计链路验收；真实对话必须填写 DeepSeek API Key。运行日志和进程记录放在被 Git 忽略的 `.runtime/`，不会写入企业资料或提交到仓库。
+
 ### 后端
 
 ```bash
