@@ -87,7 +87,9 @@ class Settings(BaseSettings):
     # OpenAI-compatible chat/embeddings endpoint. Secret comes from env/.env only.
     deepseek_api_key: str = ""
     deepseek_base_url: str = "https://api.deepseek.com"
-    deepseek_model: str = "deepseek-chat"
+    # Current DeepSeek API model. ``deepseek-chat`` is a legacy alias entering
+    # deprecation; keep the model name overrideable through RAG_DEEPSEEK_MODEL.
+    deepseek_model: str = "deepseek-v4-flash"
 
     # Reranker selection: "none" keeps RRF order; "deepseek" uses DeepSeek as an
     # LLM-as-reranker over the RRF-fused candidates. Requires deepseek_api_key.

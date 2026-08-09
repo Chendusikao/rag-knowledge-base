@@ -1,18 +1,19 @@
-# 架构与数据契约（V1 地基脚手架）
+# 架构与数据契约（V1）
 
-> 配套 PLAN.md。本文件描述脚手架已实现与留桩的部分，便于后续按 8–10 周计划推进。
+> 本文件描述当前 V1 已实现与待补充的部分，便于后续迭代和部署验收。
 
 ## 1. 技术栈
 
 | 层 | 选型 | 状态 |
 |---|---|---|
-| 前端 | Next.js 14 (App Router) + TS + Tailwind | 已实现页面骨架 |
+| 前端 | Next.js 14 (App Router) + React 18 + TS + Tailwind | 已实现 |
 | 后端 | FastAPI + Pydantic v2 + SQLAlchemy 2.0 (async) | 已实现 |
 | 业务/任务/聊天/缓存/评测存储 | SQLite（WAL 单文件） | 已实现 |
+| 对话生成 | DeepSeek OpenAI-compatible API（当前默认 `deepseek-v4-flash`） | 已实现；需 `RAG_DEEPSEEK_API_KEY` |
 | 稠密向量 | Chroma（持久化 ANN，按 KB 代次分集合，PLAN 目标） | 已实现：接口与 File 回退双后端；装了 `chromadb` 自动启用，否则用零依赖文件索引 |
 | 稀疏索引 | BM25（rank_bm25，基于 SQLite Chunk 文本；**中文按字符 n-gram 切分**，否则中文整句被当单个 token 而失效） | 已实现（中文分词已修复） |
 | 解析 | **Docling 真实解析已接入**：PDF/Word/PPT/Excel/图片/HTML 的版面+表格抽取，带真实页码/章节路径/模态；图片 OCR 可选（easyocr） | Markdown/纯文本仍走标题感知切分；PDF 解析失败优雅降级为占位 |
-| 本地嵌入 | **BGE-M3**（真·语义，1024 维，sentence-transformers）**或** `local-lexical`（零下载、纯本地、内容派生词法向量，1024 维） | `LocalEmbedding` + `LocalLexicalEmbedding` 均已实装；默认 `local-lexical`（当前网络封锁模型权重 CDN）；可切 `local` 用 BGE-M3 |
+| 本地嵌入 | **BGE-M3**（真·语义，1024 维，sentence-transformers）**或** `local-lexical`（零下载、纯本地、内容派生词法向量，1024 维） | 两种 Provider 均已实装；公共默认 `mock`，部署可切 `local` 或 `local-lexical` |
 | 密钥 | Windows 凭据管理器（计划） | secret_store 占位（支持 env 注入） |
 
 ## 2. 目录
@@ -80,9 +81,12 @@ BGE-M3（权重位于 `E:/xaizai/wendaxitog/backend/models/bge-m3`），验证�
 余弦 0.795 ≫ 股票 0.324）与端到端检索均正常。切换 embedding provider 后使用
 `scripts/reindex_all_kbs.py` 一键重索引所有知识库。新增 **DeepSeek 接入**：
 `factory` 增加 `kind=deepseek`（复用 OpenAI-compatible 指向 `https://api.deepseek.com`），
-`default_llm_provider=deepseek` 即让问答用 DeepSeek 真实生成（前端 `backend="local"` 走
-`get_llm()`）；`deepseek.py` 提供 `DeepSeekReranker` 作 LLM-as-reranker。密钥仅走
-`RAG_DEEPSEEK_API_KEY` 环境变量（`.env`，git 忽略），不进源码。Dify 必须接收本地
+`default_llm_provider=deepseek` 即让问答用 DeepSeek 真实生成（当前默认模型为
+`deepseek-v4-flash`，前端 `backend="local"` 走 `get_llm()`）；`deepseek.py` 提供
+`DeepSeekReranker` 作 LLM-as-reranker。旧模型别名 `deepseek-chat` 已进入弃用周期，
+可通过 `RAG_DEEPSEEK_MODEL` 覆盖。密钥仅走 `RAG_DEEPSEEK_API_KEY` 环境变量（`.env`，
+git 忽略），不进源码。设备允许时也可以把 `openai_compatible` Provider 指向 Ollama、
+LM Studio 或 vLLM 等本地模型服务；当前仓库未捆绑本地 LLM 权重。Dify 必须接收本地
 `context_bundle`，不得绕过本地引用核验。
 
 ## 7. 已知留桩（后续阶段填充）

@@ -44,7 +44,7 @@ async def test_llm() -> None:
     inst = build_provider("llm")
     assert isinstance(inst, OpenAICompatibleProvider), f"unexpected: {type(inst)}"
     assert inst.base_url == "https://api.deepseek.com", inst.base_url
-    assert inst.model == "deepseek-chat", inst.model
+    assert inst.model == "deepseek-v4-flash", inst.model
 
     out = await inst.complete("sys", "user")
     assert '"0": 0.9' in out, out
