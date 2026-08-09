@@ -6,7 +6,8 @@
 param(
     [switch]$NoBrowser,
     [int]$BackendPort = 8000,
-    [int]$FrontendPort = 3000
+    [int]$FrontendPort = 3000,
+    [bool]$ReplaceStaleBackend = $true
 )
 
 $ErrorActionPreference = "Stop"
@@ -22,6 +23,14 @@ $FrontendPidFile = Join-Path $RuntimeDir "frontend.pid"
 $BackendLog = Join-Path $RuntimeDir "backend.log"
 $BackendErrorLog = Join-Path $RuntimeDir "backend.error.log"
 $FrontendLog = Join-Path $RuntimeDir "frontend.log"
+$ExpectedBackendVersion = "0.2.0"
+$MainPy = Join-Path $BackendDir "app\main.py"
+if (Test-Path -LiteralPath $MainPy) {
+    $versionMatch = [regex]::Match((Get-Content -LiteralPath $MainPy -Raw -Encoding utf8), 'version="([^"]+)"')
+    if ($versionMatch.Success) {
+        $ExpectedBackendVersion = $versionMatch.Groups[1].Value
+    }
+}
 
 New-Item -ItemType Directory -Force -Path $RuntimeDir | Out-Null
 $env:PYTHONUTF8 = "1"
@@ -38,6 +47,16 @@ function Wait-Http([string]$Url, [int]$TimeoutSeconds = 60) {
     return $false
 }
 
+function Get-BackendHealth([string]$Url) {
+    try {
+        $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop
+        if ($response.StatusCode -ne 200) { return $null }
+        return ($response.Content | ConvertFrom-Json)
+    } catch {
+        return $null
+    }
+}
+
 function Get-ListeningProcessId([int]$Port) {
     try {
         $connection = Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue |
@@ -45,6 +64,59 @@ function Get-ListeningProcessId([int]$Port) {
         if ($connection) { return [int]$connection.OwningProcess }
     } catch { }
     return 0
+}
+
+function Stop-ProcessTree([int]$ProcessId) {
+    if ($ProcessId -eq 0) { return $false }
+    $result = Start-Process -FilePath "taskkill.exe" `
+        -ArgumentList @("/PID", "$ProcessId", "/T", "/F") `
+        -WindowStyle Hidden -Wait -PassThru
+    return $result.ExitCode -eq 0
+}
+
+function Find-FreePort([int]$StartingPort) {
+    for ($port = $StartingPort; $port -lt ($StartingPort + 20); $port++) {
+        if (Get-ListeningProcessId $port -eq 0) { return $port }
+    }
+    throw "没有找到可用的后端端口（起始端口 $StartingPort）。"
+}
+
+function Find-HealthyBackend([int]$StartingPort, [int]$EndPort) {
+    for ($port = $StartingPort; $port -le $EndPort; $port++) {
+        $health = Get-BackendHealth ("http://127.0.0.1:{0}/health" -f $port)
+        if ($health -and [string]$health.version -eq $ExpectedBackendVersion) {
+            return [pscustomobject]@{ Port = $port; Health = $health }
+        }
+    }
+    return $null
+}
+
+function Set-FrontendApiBase([int]$Port) {
+    $envFile = Join-Path $FrontendDir ".env.local"
+    if (-not (Test-Path -LiteralPath $envFile)) {
+        Copy-Item -LiteralPath (Join-Path $FrontendDir ".env.local.example") -Destination $envFile
+    }
+    $newValue = "NEXT_PUBLIC_API_BASE=http://localhost:$Port"
+    $lines = @(Get-Content -LiteralPath $envFile -Encoding utf8)
+    $found = $false
+    $changed = $false
+    $newLines = foreach ($line in $lines) {
+        if ($line -match "^\s*#?\s*NEXT_PUBLIC_API_BASE=") {
+            $found = $true
+            if ($line -ne $newValue) { $changed = $true }
+            $newValue
+        } else {
+            $line
+        }
+    }
+    if (-not $found) {
+        $newLines += $newValue
+        $changed = $true
+    }
+    if ($changed) {
+        Set-Content -LiteralPath $envFile -Value $newLines -Encoding utf8
+    }
+    return $changed
 }
 
 if (-not (Test-Path -LiteralPath $BackendEnv)) {
@@ -59,17 +131,54 @@ if (-not (Test-Path -LiteralPath $VenvPython)) {
     throw "未找到 $VenvPython，请先运行 .\install.ps1"
 }
 
-$backendUrl = "http://127.0.0.1:$BackendPort"
+$activeBackendPort = $BackendPort
+$backendUrl = "http://127.0.0.1:$activeBackendPort"
 $frontendUrl = "http://127.0.0.1:$FrontendPort"
 
-if (-not (Wait-Http "$backendUrl/health" 2)) {
+$backendHealth = Get-BackendHealth "$backendUrl/health"
+if ($backendHealth -and [string]$backendHealth.version -ne $ExpectedBackendVersion) {
     $backendOwner = Get-ListeningProcessId $BackendPort
-    if ($backendOwner -ne 0) {
-        throw "端口 $BackendPort 已被进程 $backendOwner 占用，请先处理该服务。"
+    if ($ReplaceStaleBackend -and $backendOwner -ne 0) {
+        Write-Host "检测到旧版后端（$($backendHealth.version)），正在替换为 $ExpectedBackendVersion..."
+        $killSucceeded = Stop-ProcessTree $backendOwner
+        Start-Sleep -Seconds 1
+        if ($killSucceeded -and (Get-ListeningProcessId $BackendPort -eq 0)) {
+            $backendHealth = $null
+        } else {
+            Write-Host "无法替换旧版后端，正在寻找可用端口..." -ForegroundColor Yellow
+            $healthyFallback = Find-HealthyBackend ($BackendPort + 1) ($BackendPort + 19)
+            if ($healthyFallback) {
+                $activeBackendPort = $healthyFallback.Port
+                $backendUrl = "http://127.0.0.1:$activeBackendPort"
+                $backendHealth = $healthyFallback.Health
+            } else {
+                $activeBackendPort = Find-FreePort ($BackendPort + 1)
+                $backendUrl = "http://127.0.0.1:$activeBackendPort"
+                $backendHealth = $null
+            }
+        }
+    } else {
+        $healthyFallback = Find-HealthyBackend ($BackendPort + 1) ($BackendPort + 19)
+        if ($healthyFallback) {
+            $activeBackendPort = $healthyFallback.Port
+            $backendUrl = "http://127.0.0.1:$activeBackendPort"
+            $backendHealth = $healthyFallback.Health
+        } else {
+            $activeBackendPort = Find-FreePort ($BackendPort + 1)
+            $backendUrl = "http://127.0.0.1:$activeBackendPort"
+            $backendHealth = $null
+        }
     }
-    Write-Host "启动后端..."
+}
+
+if (-not $backendHealth) {
+    $backendOwner = Get-ListeningProcessId $activeBackendPort
+    if ($backendOwner -ne 0) {
+        throw "端口 $activeBackendPort 已被进程 $backendOwner 占用，请先处理该服务。"
+    }
+    Write-Host "启动后端（端口 $activeBackendPort）..."
     $backendProcess = Start-Process -FilePath $VenvPython -WorkingDirectory $BackendDir `
-        -ArgumentList @("-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "$BackendPort") `
+        -ArgumentList @("-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "$activeBackendPort") `
         -WindowStyle Hidden -RedirectStandardOutput $BackendLog -RedirectStandardError $BackendErrorLog -PassThru
     Set-Content -LiteralPath $BackendPidFile -Value $backendProcess.Id -Encoding ascii
     if (-not (Wait-Http "$backendUrl/health" 60)) {
@@ -78,8 +187,20 @@ if (-not (Wait-Http "$backendUrl/health" 2)) {
         Get-Content -LiteralPath $BackendErrorLog -Tail 30 -ErrorAction SilentlyContinue
         throw "后端未能在规定时间内启动。"
     }
+    $backendHealth = Get-BackendHealth "$backendUrl/health"
+    if (-not $backendHealth -or [string]$backendHealth.version -ne $ExpectedBackendVersion) {
+        throw "后端已启动，但版本不匹配（期望 $ExpectedBackendVersion）。"
+    }
 } else {
-    Write-Host "后端已运行：$backendUrl"
+    Write-Host "后端已运行：$backendUrl（版本 $($backendHealth.version)）"
+}
+
+$frontendConfigChanged = Set-FrontendApiBase $activeBackendPort
+if ($frontendConfigChanged -and (Get-ListeningProcessId $FrontendPort) -ne 0) {
+    $staleFrontendOwner = Get-ListeningProcessId $FrontendPort
+    Write-Host "后端端口已变更，正在重启前端以加载 API 地址..."
+    Stop-ProcessTree $staleFrontendOwner | Out-Null
+    Start-Sleep -Seconds 1
 }
 
 if (-not (Wait-Http $frontendUrl 2)) {
