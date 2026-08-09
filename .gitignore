@@ -10,6 +10,7 @@ venv/
 # Node
 node_modules/
 .next/
+*.tsbuildinfo
 out/
 dist/
 build/
@@ -29,6 +30,7 @@ backend/*.db-shm
 backend/app/data/
 backend/models/
 backend/*.log
+/.runtime/
 backend/sample.pdf
 backend/_tmp_test/
 backend/_sync_test/

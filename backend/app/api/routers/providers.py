@@ -2,12 +2,16 @@
 from __future__ import annotations
 
 import time
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import require_roles
 from app.db.session import get_session as _gs
+from app.models.common import SystemRole
+from app.models.enterprise import EnterpriseUser
 from app.models.provider import ProviderProfile
 from app.schemas.provider import (
     ProviderProfileCreate,
@@ -17,8 +21,10 @@ from app.schemas.provider import (
     ProviderTestResponse,
 )
 from app.services.providers.factory import build_provider
+from app.services.audit import record_audit
 
 router = APIRouter(prefix="/api/v1/provider-profiles", tags=["providers"])
+AdminUser = Annotated[EnterpriseUser, Depends(require_roles(SystemRole.ADMIN))]
 
 
 async def _get_or_none(session: AsyncSession, role: str) -> ProviderProfile | None:
@@ -28,14 +34,20 @@ async def _get_or_none(session: AsyncSession, role: str) -> ProviderProfile | No
 
 
 @router.get("", response_model=list[ProviderProfileOut])
-async def list_providers(session: AsyncSession = Depends(_gs)) -> list[ProviderProfileOut]:
+async def list_providers(
+    session: Annotated[AsyncSession, Depends(_gs)], _: AdminUser
+) -> list[ProviderProfileOut]:
     res = await session.execute(select(ProviderProfile))
     return [ProviderProfileOut.model_validate(p) for p in res.scalars().all()]
 
 
 @router.put("/{role}", response_model=ProviderProfileOut)
 async def upsert_provider(
-    role: str, body: ProviderProfileCreate, session: AsyncSession = Depends(_gs)
+    role: str,
+    body: ProviderProfileCreate,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(_gs)],
+    actor: AdminUser,
 ) -> ProviderProfileOut:
     if body.role and body.role != role:
         raise HTTPException(status_code=400, detail="role in body must match path")
@@ -50,13 +62,27 @@ async def upsert_provider(
     else:
         prof = ProviderProfile(id=f"pp_{role}", **data)
         session.add(prof)
+    await session.flush()
+    await record_audit(
+        session,
+        actor=actor,
+        action="provider.updated",
+        resource_type="provider_profile",
+        resource_id=role,
+        details={"kind": body.kind, "model": body.model},
+        request=request,
+    )
     await session.commit()
     await session.refresh(prof)
     return ProviderProfileOut.model_validate(prof)
 
 
 @router.post("/test", response_model=ProviderTestResponse)
-async def test_provider(req: ProviderTestRequest, session: AsyncSession = Depends(_gs)) -> ProviderTestResponse:
+async def test_provider(
+    req: ProviderTestRequest,
+    session: Annotated[AsyncSession, Depends(_gs)],
+    _: AdminUser,
+) -> ProviderTestResponse:
     """Cheap connectivity/capability check before persisting (PLAN PUT .../test)."""
     try:
         prof = ProviderProfile(

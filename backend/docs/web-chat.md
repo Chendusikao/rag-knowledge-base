@@ -1,48 +1,49 @@
-# 知识库问答网页版（Web Chat）
+# 用户前端与后端调试入口
 
-把命令行工具 `chat_kb.py` 升级成的网页问答界面：选知识库 → 中文提问 → 答案由
-DeepSeek 基于知识库内容**逐字流式**生成，末尾展示「参考来源」（文档/页码/章节）。
+项目只保留一套正式用户界面，避免用户功能与开发调试混在一起。
 
-## 入口
+## 用户入口
 
-后端启动后，浏览器打开：
+启动前后端后，打开：
 
 ```
-http://127.0.0.1:8000/
+http://localhost:3000/
 ```
 
-（根路径即是聊天页，Swagger 仍在 `/docs`。）
+用户前端提供首次企业初始化、登录、部门知识库、资料导入、知识问答、用户权限和审计安全页面。不同角色只显示与自身职责匹配的导航。
 
-## 功能
+## 开发调试入口
 
-- 左侧知识库列表（移动端自动变为顶部下拉），点选即切换
-- 流式中文问答，多轮会话自动带上下文（同一知识库连续追问）
-- 回答末尾渲染「参考来源」卡片：文档名、页码、章节路径、原文片段
-- 顶部徽章显示当前模型状态：`DeepSeek 已启用` / `示例回答（未配置模型）`
-- 资料不足时，回答末尾追加提示
-- 「新建会话」按钮：清空多轮上下文，重新问
+后端运行在 `http://127.0.0.1:8000`，根路径会跳转到 Swagger：
 
-## 技术说明
+```
+http://127.0.0.1:8000/docs
+```
 
-- 前端：单文件原生 HTML/CSS/JS（`backend/app/static/index.html`），无框架、无构建
-- 托管：`backend/app/main.py` 末尾 `app.mount("/", StaticFiles(...))`，`/api/*` 路由优先级更高，现有接口不受影响
-- 新增 `GET /api/v1/meta`：返回 `llm_provider` / `deepseek_configured` / `doc_parser`，供前端顶部状态徽章使用
-- 聊天走 `POST /api/v1/chat/stream`（SSE），解析 `phase == "generate"` 的 `token` 增量渲染
+检索参数、评测、Provider、任务状态和其他内部接口通过 Swagger、脚本或日志调试，
+不出现在普通用户前端导航中。
 
-## 改动代码后如何生效
+## 关键接口
 
-改完 `index.html` 或 `main.py` 后，重跑：
+- `GET /health`：健康状态
+- `GET /api/v1/auth/status`：初始化与登录状态
+- `/api/v1/departments`、`/api/v1/users`：部门和用户管理
+- `/api/v1/knowledge-bases/{kb_id}/permissions`：知识库单独授权
+- `GET /api/v1/audit-events`：只追加审计记录
+- `GET /api/v1/security/status`：数据安全部署状态
+- `GET /api/v1/meta`：当前模型与解析配置
+- `POST /api/v1/chat/stream`：流式问答
+- `GET /api/v1/retrieval/inspect`：检索调试
+- `/api/v1/evaluation-*`：评测任务
+- `/api/v1/provider-profiles*`：Provider 配置与连接测试
+
+## 改动后如何生效
+
+后端代码修改后重启：
 
 ```
 cd E:\xaizai\wendaxitog\backend
 .\scripts\start_backend.ps1
 ```
 
-## 排错
-
-| 现象 | 处理 |
-| --- | --- |
-| 页面提示「连不上后端」 | 后端没启动或 8000 被占。重跑 `start_backend.ps1` |
-| 徽章显示「示例回答」 | `backend/.env` 里 `RAG_DEEPSEEK_API_KEY` 未填，或 provider 未设为 deepseek |
-| 提问后没有任何回答 | 看 `backend.log` 末尾，多为检索或模型调用报错；重跑启动脚本 |
-| 回答提示「资料不足」 | 该问题在所选知识库里没检索到相关内容，换个问法或换知识库 |
+前端代码修改后由 Next.js 开发服务器自动更新；生产构建可运行 `npm run build`。

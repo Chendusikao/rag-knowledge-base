@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { api, type Citation } from "@/lib/api";
 
@@ -18,10 +19,19 @@ export default function ChatPage() {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [busy, setBusy] = useState(false);
   const [phase, setPhase] = useState("");
+  const [loading, setLoading] = useState(true);
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    api.listKbs().then((l) => { setKbs(l); if (l.length) setKbId(l[0].id); }).catch(() => {});
+    api.listKbs()
+      .then((list) => {
+        const requestedKbId = new URLSearchParams(window.location.search).get("kb");
+        setKbs(list);
+        if (requestedKbId && list.some((kb) => kb.id === requestedKbId)) setKbId(requestedKbId);
+        else if (list.length) setKbId(list[0].id);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [turns]);
@@ -38,57 +48,99 @@ export default function ChatPage() {
     let insufficient: boolean | null = null;
     try {
       for await (const ev of api.chatStream({ kb_id: kbId, query: q, mode: "balanced", backend: "local" })) {
-        if (ev.phase === "retrieve") setPhase("检索中…");
-        else if (ev.phase === "rerank") setPhase("重排中…");
-        else if (ev.phase === "generate" && ev.token) { acc += ev.token; setTurns((t) => syncAssistant(t, acc)); }
+        if (ev.phase === "retrieve" || ev.phase === "rerank") setPhase("正在查找相关资料…");
+        else if (ev.phase === "generate" && ev.token) {
+          setPhase("正在整理回答…");
+          acc += ev.token;
+          setTurns((t) => syncAssistant(t, acc));
+        }
         else if (ev.phase === "citation") { cites = ev.citations ?? []; }
         else if (ev.phase === "done") { conf = ev.confidence ?? null; insufficient = ev.insufficient_evidence ?? null; setPhase(""); }
-        else if (ev.phase === "error") setPhase("错误：" + ev.error);
+        else if (ev.phase === "error") setPhase("暂时无法回答：" + ev.error);
       }
       setTurns((t) => replaceAssistant(t, { role: "assistant", content: acc, citations: cites, confidence: conf, insufficient }));
     } catch (e) {
-      setPhase("错误：" + (e as Error).message);
+      setPhase("暂时无法回答：" + (e as Error).message);
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-xl font-semibold">聊天问答</h1>
-      <select className="input" value={kbId} onChange={(e) => setKbId(e.target.value)}>
-        {kbs.map((k) => <option key={k.id} value={k.id}>{k.name}</option>)}
-      </select>
+    <div className="max-w-5xl space-y-4">
+      <header>
+        <h1 className="text-2xl font-semibold">问答</h1>
+        <p className="mt-2 text-sm text-gray-400">回答会依据所选企业知识库，并标出可核查的引用来源。</p>
+      </header>
+
+      {loading ? (
+        <div className="card text-sm text-gray-400">正在读取知识库…</div>
+      ) : kbs.length === 0 ? (
+        <div className="card text-sm text-gray-300">
+          还没有可用的知识库。请先<Link href="/knowledge-bases" className="mx-1 text-accent hover:underline">创建知识库</Link>并添加资料。
+        </div>
+      ) : (
+        <label className="block space-y-2">
+          <span className="text-sm font-medium">回答所依据的知识库</span>
+          <select className="input w-full md:w-80" value={kbId} onChange={(e) => setKbId(e.target.value)}>
+            {kbs.map((k) => <option key={k.id} value={k.id}>{k.name}</option>)}
+          </select>
+        </label>
+      )}
+
       <div className="card h-[55vh] overflow-auto space-y-3">
+        {turns.length === 0 && (
+          <div className="flex h-full items-center justify-center text-sm text-gray-500">
+            {loading ? "正在准备问答…" : "输入一个与资料有关的问题，开始问答。"}
+          </div>
+        )}
         {turns.map((t, i) => (
           <div key={i} className={t.role === "user" ? "text-right" : "text-left"}>
             <div className={"inline-block max-w-[80%] rounded-lg p-3 " + (t.role === "user" ? "bg-accent text-white" : "bg-panelb")}>
               <div className="whitespace-pre-wrap">{t.content}</div>
               {t.role === "assistant" && t.citations && t.citations.length > 0 && (
-                <div className="mt-2 text-xs text-gray-400">
-                  引用：
+                <div className="mt-3 border-t border-edge pt-2 text-xs text-gray-400">
+                  <div className="mb-1">参考来源</div>
                   {t.citations.map((c, j) => (
-                    <span key={c.id} className="mr-2">[来源 {j + 1}] {c.doc_name || c.doc_id} p{c.page_number}</span>
+                    <a
+                      key={c.id}
+                      href={`${api.base}/api/v1/documents/${c.doc_id}/file`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mr-3 text-accent hover:underline"
+                    >
+                      [{j + 1}] {c.doc_name || c.doc_id}{c.page_number > 0 ? ` · 第 ${c.page_number} 页` : ""}
+                    </a>
                   ))}
                 </div>
               )}
-              {t.role === "assistant" && t.insufficient && <div className="mt-1 text-xs text-yellow-400">资料不足</div>}
+              {t.role === "assistant" && t.insufficient && <div className="mt-2 text-xs text-yellow-400">现有资料不足以可靠回答这个问题。</div>}
             </div>
           </div>
         ))}
         <div ref={endRef} />
       </div>
       <div className="flex gap-2">
-        <input className="input flex-1" placeholder="输入问题…" value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()} />
-        <button className="btn" onClick={send} disabled={busy}>{busy ? phase || "生成中…" : "发送"}</button>
+        <input
+          className="input flex-1"
+          placeholder={loading ? "正在读取知识库…" : kbs.length ? "输入需要查询的业务问题…" : "请先创建知识库并添加资料"}
+          value={query}
+          disabled={!kbId || busy}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && send()}
+        />
+        <button className="btn" onClick={send} disabled={!kbId || !query.trim() || busy}>
+          {busy ? phase || "正在回答…" : "发送"}
+        </button>
       </div>
+      {!busy && phase && <div className="text-sm text-red-400">{phase}</div>}
     </div>
   );
 }
 
 function syncAssistant(turns: Turn[], content: string): Turn[] {
   const copy = [...turns];
-  const idx = copy.findIndex((t) => t.role === "assistant");
+  const idx = findAssistantAfterLatestQuestion(copy);
   if (idx >= 0) copy[idx] = { ...copy[idx], content };
   else copy.push({ role: "assistant", content });
   return copy;
@@ -96,8 +148,13 @@ function syncAssistant(turns: Turn[], content: string): Turn[] {
 
 function replaceAssistant(turns: Turn[], turn: Turn): Turn[] {
   const copy = [...turns];
-  const idx = copy.findIndex((t) => t.role === "assistant");
+  const idx = findAssistantAfterLatestQuestion(copy);
   if (idx >= 0) copy[idx] = turn;
   else copy.push(turn);
   return copy;
+}
+
+function findAssistantAfterLatestQuestion(turns: Turn[]): number {
+  const latestQuestion = turns.findLastIndex((turn) => turn.role === "user");
+  return turns.findIndex((turn, index) => index > latestQuestion && turn.role === "assistant");
 }
