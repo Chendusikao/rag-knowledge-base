@@ -100,7 +100,7 @@ wendaxitog/
 
 ### 双击安装包（Windows）
 
-正式 Release 会提供对应版本的 WendaXitog-Setup-vX.Y.Z.exe（当前为 v0.1.1）。双击安装包后，按提示选择安装目录；默认安装到 %LOCALAPPDATA%\WendaXitog，安装器会：
+正式 Release 会提供对应版本的 WendaXitog-Setup-vX.Y.Z.exe（当前为 v0.1.2）。双击安装包后会弹出图形配置窗口；按提示选择安装目录，默认安装到 %LOCALAPPDATA%\WendaXitog，安装器会：
 
 1. 检查 Python 3.11+ 与 Node.js LTS；缺少时可尝试通过 Windows winget 自动安装。
 2. 安装前后端依赖并创建本地配置文件。
@@ -109,7 +109,7 @@ wendaxitog/
 
 安装包不包含 API Key、企业数据库、企业资料或模型权重。由于当前安装包未进行代码签名，Windows SmartScreen 可能显示提示；确认来源为本项目后选择“更多信息 → 仍要运行”。
 
-如果只下载 GitHub 自动生成的 Source code (zip)，解压后仍可在项目根目录依次运行 install.ps1、setup.ps1、start.ps1。维护者可用 installer\build-installer.ps1 -Version v0.1.1 重新生成 Windows 安装包。
+如果只下载 GitHub 自动生成的 Source code (zip)，解压后仍可在项目根目录依次运行 install.ps1、setup.ps1、start.ps1。维护者可用 installer\build-installer.ps1 -Version v0.1.2 重新生成 Windows 安装包。
 
 ### 后端
 
